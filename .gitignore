@@ -1,0 +1,41 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Test
+coverage.txt
+coverage.html
+
+# Build
+dist/
+build/
+
+# Dependencies
+vendor/
+
+# Generated
+docs/swagger/
+internal/mock/
+
+# OS
+.DS_Store
+Thumbs.db 
