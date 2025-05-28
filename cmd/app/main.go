@@ -5,47 +5,76 @@ import (
 	"ditto/config"
 	"ditto/internal/app"
 	"ditto/internal/ditto"
-	"ditto/internal/http/handler"
-	"ditto/internal/http/router"
-	"ditto/internal/repository"
-	"ditto/internal/service"
+	"ditto/internal/http"
+	"ditto/internal/influxdb"
 	"ditto/pkg/database"
 	"ditto/pkg/logger"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/fx"
 )
 
 func main() {
-	app := fx.New(
+	application := fx.New(
 		config.Module,
 		database.Module,
 		app.Module,
+		http.Module,
 		logger.Module,
-		fx.Invoke(func(lc fx.Lifecycle, dittoService ditto.Service, dittoClient *ditto.Client, r *gin.Engine) {
-			// Start Ditto service
+		fx.Provide(
+			// Initialize InfluxDB client
+			func(cfg *config.Config) *influxdb.Client {
+				return influxdb.NewClient(cfg.InfluxDB.URL, cfg.InfluxDB.Token, cfg.InfluxDB.Org, cfg.InfluxDB.Bucket)
+			},
+			// Initialize Ditto client
+			func(cfg *config.Config) *ditto.Client {
+				return ditto.NewClient(cfg.Proxy.WSURL, cfg.Proxy.Username, cfg.Proxy.Password)
+			},
+			// Initialize Ditto service
+			ditto.NewService,
+		),
+		fx.Invoke(func(lc fx.Lifecycle, app *app.App, dittoService ditto.Service, logger logger.Logger) {
+			// Start Ditto service and HTTP server
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
-					return dittoService.Start(ctx)
+					logger.Info("Starting Ditto service...")
+					if err := dittoService.Start(ctx); err != nil {
+						return err
+					}
+					return app.Start(ctx)
 				},
 				OnStop: func(ctx context.Context) error {
+					logger.Info("Stopping Ditto service...")
 					return dittoService.Stop()
 				},
 			})
-
-			// Initialize repository with Ditto service
-			thingRepo := repository.NewThingRepositoryDitto(dittoService, dittoClient)
-
-			// Initialize service
-			thingService := service.NewThingService(thingRepo, dittoClient)
-
-			// Initialize handler
-			thingHandler := handler.NewThingHandler(thingService)
-
-			// Register routes
-			router.RegisterThingRoutes(r.Group("/api/v1"), thingHandler)
 		}),
 	)
 
-	app.Run()
+	// Start the application
+	startCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		if err := application.Start(startCtx); err != nil {
+			log.Printf("Failed to start application: %v", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for interrupt signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
+
+	// Graceful shutdown
+	stopCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := application.Stop(stopCtx); err != nil {
+		log.Printf("Failed to stop application: %v", err)
+		os.Exit(1)
+	}
 }

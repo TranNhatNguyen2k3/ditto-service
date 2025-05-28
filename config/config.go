@@ -53,7 +53,10 @@ type InfluxDBConfig struct {
 }
 
 type ProxyConfig struct {
-	TargetURL string `envconfig:"PROXY_TARGET_URL" default:""`
+	TargetURL string `envconfig:"PROXY_TARGET_URL" default:"http://localhost:8080"`
+	Username  string `envconfig:"PROXY_USERNAME" default:"ditto"`
+	Password  string `envconfig:"PROXY_PASSWORD" default:"ditto"`
+	WSURL     string `envconfig:"PROXY_WS_URL" default:"ws://localhost:8080/ws/2"`
 }
 
 func NewConfig() (*Config, error) {

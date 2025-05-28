@@ -6,15 +6,11 @@ datasources:
     access: proxy
     url: http://influxdb:8086
     isDefault: true
-    editable: true
     jsonData:
       version: Flux
       organization: myorg
       defaultBucket: ws_events
       tlsSkipVerify: true
-      httpMode: POST
-      maxSeries: 1000
-      timeInterval: 1m
     secureJsonData:
       token: my-super-secret-token
     version: 1 

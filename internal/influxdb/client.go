@@ -27,17 +27,40 @@ func NewClient(url, token, org, bucket string) *Client {
 }
 
 // WriteEvent writes a WebSocket event to InfluxDB
-func (c *Client) WriteEvent(deviceID, eventType string, eventCount int) error {
+func (c *Client) WriteEvent(deviceID, featureName string, value float64, timestamp time.Time) error {
 	point := influxdb2.NewPoint(
-		"websocket_events", // measurement
+		"ditto_events", // measurement
 		map[string]string{
-			"device_id":  deviceID,
-			"event_type": eventType,
+			"device_id":    deviceID,
+			"feature_name": featureName,
 		},
 		map[string]interface{}{
-			"event_count": eventCount,
+			"value": value,
 		},
-		time.Now(),
+		timestamp,
+	)
+
+	err := c.writeAPI.WritePoint(context.Background(), point)
+	if err != nil {
+		return fmt.Errorf("failed to write point: %v", err)
+	}
+
+	return nil
+}
+
+// WriteEventWithMetadata writes a WebSocket event to InfluxDB with additional metadata
+func (c *Client) WriteEventWithMetadata(deviceID, featureName string, value float64, metadata map[string]interface{}, timestamp time.Time) error {
+	point := influxdb2.NewPoint(
+		"ditto_events", // measurement
+		map[string]string{
+			"device_id":    deviceID,
+			"feature_name": featureName,
+		},
+		map[string]interface{}{
+			"value":    value,
+			"metadata": metadata,
+		},
+		timestamp,
 	)
 
 	err := c.writeAPI.WritePoint(context.Background(), point)

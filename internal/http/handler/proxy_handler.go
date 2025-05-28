@@ -1,79 +1,125 @@
 package handler
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
 type ProxyHandler struct {
-	targetURL string
+	dittoURL string
+	username string
+	password string
 }
 
-func NewProxyHandler(targetURL string) *ProxyHandler {
+func NewProxyHandler(dittoURL, username, password string) *ProxyHandler {
+	// Ensure dittoURL ends with /api/2
+	if !strings.HasSuffix(dittoURL, "/api/2") {
+		dittoURL = strings.TrimRight(dittoURL, "/") + "/api/2"
+	}
+
 	return &ProxyHandler{
-		targetURL: targetURL,
+		dittoURL: dittoURL,
+		username: username,
+		password: password,
 	}
 }
 
-func (h *ProxyHandler) Proxy(c *gin.Context) {
-	target, err := url.Parse(h.targetURL)
+func (h *ProxyHandler) ProxyRequest(c *gin.Context) {
+	// Get the path from the request
+	path := c.Param("path")
+	if path == "" {
+		path = c.Request.URL.Path
+	}
+
+	// Remove /api prefix if present
+	path = strings.TrimPrefix(path, "/api")
+
+	// Map /devices to /things for Ditto API
+	path = strings.Replace(path, "/devices", "/things", 1)
+
+	// Map /policies to /api/2/policies for Ditto API
+	if strings.Contains(path, "/policies") {
+		// Extract the policy ID from the path
+		parts := strings.Split(path, "/policies/")
+		if len(parts) == 2 {
+			// Reconstruct the path in Ditto format
+			path = "/api/2/policies/" + parts[1]
+		}
+	}
+
+	// Map /commands to /inbox/messages for Ditto API
+	if strings.Contains(path, "/commands") {
+		// Extract the command subject from the path
+		parts := strings.Split(path, "/commands/")
+		if len(parts) == 2 {
+			// Reconstruct the path in Ditto format
+			path = strings.Replace(parts[0], "/commands", "/inbox/messages", 1) + "/" + parts[1]
+		}
+	}
+
+	// Construct the target URL
+	targetURL := fmt.Sprintf("%s%s", strings.TrimRight(h.dittoURL, "/"), path)
+	log.Printf("Proxying request to: %s", targetURL)
+
+	// Create a new request
+	req, err := http.NewRequest(c.Request.Method, targetURL, c.Request.Body)
 	if err != nil {
-		log.Printf("Error parsing target URL: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid target URL"})
+		log.Printf("Failed to create request: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create request: %v", err)})
 		return
 	}
 
-	log.Printf("Proxying request to: %s", target.String())
-
-	proxy := httputil.NewSingleHostReverseProxy(target)
-
-	// Modify the request
-	proxy.Director = func(req *http.Request) {
-		req.URL.Scheme = target.Scheme
-		req.URL.Host = target.Host
-		req.Host = target.Host
-
-		// Forward the original path
-		req.URL.Path = singleJoiningSlash(target.Path, c.Param("proxyPath"))
-
-		// Forward query parameters
-		if target.RawQuery == "" || req.URL.RawQuery == "" {
-			req.URL.RawQuery = target.RawQuery + req.URL.RawQuery
-		} else {
-			req.URL.RawQuery = target.RawQuery + "&" + req.URL.RawQuery
+	// Copy headers from the original request
+	for name, values := range c.Request.Header {
+		for _, value := range values {
+			req.Header.Add(name, value)
 		}
-
-		log.Printf("Proxying request to: %s %s", req.Method, req.URL.String())
 	}
 
-	// Modify the response
-	proxy.ModifyResponse = func(resp *http.Response) error {
-		log.Printf("Received response: %s", resp.Status)
-		return nil
+	// Add Basic Auth
+	req.SetBasicAuth(h.username, h.password)
+
+	// Create HTTP client and send request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Failed to send request: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to send request: %v", err)})
+		return
+	}
+	defer resp.Body.Close()
+
+	log.Printf("Received response with status: %d", resp.StatusCode)
+
+	// Copy response headers
+	for name, values := range resp.Header {
+		for _, value := range values {
+			c.Header(name, value)
+		}
 	}
 
-	// Error handling
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		log.Printf("Proxy error: %v", err)
-		c.JSON(http.StatusBadGateway, gin.H{"error": "Proxy error: " + err.Error()})
+	// Set response status code
+	c.Status(resp.StatusCode)
+
+	// Copy response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Failed to read response: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read response: %v", err)})
+		return
 	}
 
-	proxy.ServeHTTP(c.Writer, c.Request)
-}
-
-func singleJoiningSlash(a, b string) string {
-	aslash := strings.HasSuffix(a, "/")
-	bslash := strings.HasPrefix(b, "/")
-	switch {
-	case aslash && bslash:
-		return a + b[1:]
-	case !aslash && !bslash:
-		return a + "/" + b
+	// Try to parse as JSON for pretty printing
+	var jsonData interface{}
+	if err := json.Unmarshal(body, &jsonData); err == nil {
+		c.JSON(resp.StatusCode, jsonData)
+	} else {
+		c.Data(resp.StatusCode, resp.Header.Get("Content-Type"), body)
 	}
-	return a + b
 }

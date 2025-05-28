@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
+	"time"
 
 	"ditto/internal/influxdb"
 )
@@ -40,9 +42,8 @@ func (s *service) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to Ditto: %v", err)
 	}
 
-	// Subscribe to temperature events for specific thing
-	thingID := "org.eclipse.ditto:device-1"
-	filter := fmt.Sprintf("and(eq(thingId,'%s'),gt(features/temperature/properties/value,50))", thingID)
+	// Subscribe to all thing events
+	filter := "exists(thingId)"
 	if err := s.client.Subscribe(filter); err != nil {
 		return fmt.Errorf("failed to subscribe to events: %v", err)
 	}
@@ -54,31 +55,76 @@ func (s *service) Start(ctx context.Context) error {
 			log.Printf("Topic: %s", topic)
 			log.Printf("Content: %s", string(value))
 
-			// Store event in InfluxDB (tự sinh event từ features)
-			var thing struct {
-				ThingId  string `json:"thingId"`
+			// Parse the event value
+			var event struct {
+				ThingID  string `json:"thingId"`
 				Features map[string]struct {
 					Properties map[string]interface{} `json:"properties"`
 				} `json:"features"`
 			}
-			if err := json.Unmarshal(value, &thing); err == nil {
-				for feature, data := range thing.Features {
-					if val, ok := data.Properties["value"]; ok {
-						// Chỉ ghi nếu value là số
-						if floatVal, ok := val.(float64); ok {
-							err := s.influxDB.WriteEvent(
-								thing.ThingId,
-								feature,
-								int(floatVal),
-							)
-							if err != nil {
-								log.Printf("Failed to store event in InfluxDB: %v", err)
-							}
+
+			// Try to parse the value as a direct event
+			if err := json.Unmarshal(value, &event); err != nil {
+				// If direct parsing fails, try to parse as a wrapped event
+				var wrappedEvent struct {
+					Value struct {
+						ThingID  string `json:"thingId"`
+						Features map[string]struct {
+							Properties map[string]interface{} `json:"properties"`
+						} `json:"features"`
+					} `json:"value"`
+				}
+				if err := json.Unmarshal(value, &wrappedEvent); err != nil {
+					log.Printf("Failed to parse event payload: %v", err)
+					return
+				}
+				event = wrappedEvent.Value
+			}
+
+			// Process features and store in InfluxDB
+			for feature, data := range event.Features {
+				if val, ok := data.Properties["value"]; ok {
+					// Convert value to float64
+					var floatVal float64
+					switch v := val.(type) {
+					case float64:
+						floatVal = v
+					case int:
+						floatVal = float64(v)
+					case int64:
+						floatVal = float64(v)
+					case string:
+						// Try to parse string as float
+						if f, err := strconv.ParseFloat(v, 64); err == nil {
+							floatVal = f
+						} else {
+							log.Printf("Failed to parse value as float: %v", err)
+							continue
+						}
+					default:
+						log.Printf("Unsupported value type: %T", val)
+						continue
+					}
+
+					// Get timestamp from properties or use current time
+					timestamp := time.Now()
+					if ts, ok := data.Properties["timestamp"].(string); ok {
+						if t, err := time.Parse(time.RFC3339, ts); err == nil {
+							timestamp = t
 						}
 					}
+
+					// Store in InfluxDB
+					err := s.influxDB.WriteEvent(
+						event.ThingID,
+						feature,
+						floatVal,
+						timestamp,
+					)
+					if err != nil {
+						log.Printf("Failed to store event in InfluxDB: %v", err)
+					}
 				}
-			} else {
-				log.Printf("Failed to parse thing payload: %v", err)
 			}
 		}); err != nil {
 			log.Printf("Error listening to Ditto events: %v", err)

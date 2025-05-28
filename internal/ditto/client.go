@@ -23,6 +23,11 @@ type Client struct {
 
 // NewClient creates a new Ditto WebSocket client
 func NewClient(host, username, password string) *Client {
+	// Ensure host is a valid URL
+	if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
+		host = "http://" + host
+	}
+
 	return &Client{
 		host:     host,
 		username: username,
@@ -32,7 +37,19 @@ func NewClient(host, username, password string) *Client {
 
 // Connect establishes a WebSocket connection to Ditto
 func (c *Client) Connect() error {
-	u := url.URL{Scheme: "ws", Host: c.host, Path: "/ws/2"}
+	// Parse the WebSocket URL
+	u, err := url.Parse(c.host)
+	if err != nil {
+		return fmt.Errorf("invalid WebSocket URL: %v", err)
+	}
+
+	// Convert HTTP URL to WebSocket URL
+	u.Scheme = "ws"
+	if strings.HasSuffix(u.Path, "/") {
+		u.Path = u.Path + "ws/2"
+	} else {
+		u.Path = u.Path + "/ws/2"
+	}
 
 	// Basic Auth header
 	auth := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.password)))
@@ -159,7 +176,7 @@ func (c *Client) Close() error {
 
 // GetThing retrieves a thing by its ID
 func (c *Client) GetThing(thingID string) (json.RawMessage, error) {
-	url := fmt.Sprintf("http://%s/api/2/things/%s", c.host, thingID)
+	url := fmt.Sprintf("%s/api/2/things/%s", c.host, thingID)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -191,7 +208,7 @@ func (c *Client) GetThing(thingID string) (json.RawMessage, error) {
 
 // CreateThing creates a new thing
 func (c *Client) CreateThing(thingID string, thing json.RawMessage) error {
-	url := fmt.Sprintf("http://%s/api/2/things/%s", c.host, thingID)
+	url := fmt.Sprintf("%s/api/2/things/%s", c.host, thingID)
 
 	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(thing))
 	if err != nil {
@@ -219,7 +236,7 @@ func (c *Client) CreateThing(thingID string, thing json.RawMessage) error {
 
 // UpdateThing updates an existing thing
 func (c *Client) UpdateThing(thingID string, thing json.RawMessage) error {
-	url := fmt.Sprintf("http://%s/api/2/things/%s", c.host, thingID)
+	url := fmt.Sprintf("%s/api/2/things/%s", c.host, thingID)
 
 	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(thing))
 	if err != nil {
@@ -247,7 +264,7 @@ func (c *Client) UpdateThing(thingID string, thing json.RawMessage) error {
 
 // DeleteThing deletes a thing
 func (c *Client) DeleteThing(thingID string) error {
-	url := fmt.Sprintf("http://%s/api/2/things/%s", c.host, thingID)
+	url := fmt.Sprintf("%s/api/2/things/%s", c.host, thingID)
 
 	req, err := http.NewRequest("DELETE", url, nil)
 	if err != nil {
@@ -272,17 +289,16 @@ func (c *Client) DeleteThing(thingID string) error {
 	return nil
 }
 
-// CreatePolicy creates a new policy in Ditto
+// CreatePolicy creates a new policy
 func (c *Client) CreatePolicy(policyID string) error {
-	url := fmt.Sprintf("http://%s/api/2/policies/%s", c.host, policyID)
+	url := fmt.Sprintf("%s/api/2/policies/%s", c.host, policyID)
 
-	// Create default policy
 	policy := map[string]interface{}{
 		"entries": map[string]interface{}{
 			"owner": map[string]interface{}{
 				"subjects": map[string]interface{}{
-					"nginx:ditto": map[string]interface{}{
-						"type": "nginx basic auth user",
+					"ditto": map[string]interface{}{
+						"type": "basic-auth",
 					},
 				},
 				"resources": map[string]interface{}{
@@ -303,13 +319,12 @@ func (c *Client) CreatePolicy(policyID string) error {
 		},
 	}
 
-	// Marshal policy to JSON
-	policyJSON, err := json.Marshal(policy)
+	policyBytes, err := json.Marshal(policy)
 	if err != nil {
 		return fmt.Errorf("failed to marshal policy: %v", err)
 	}
 
-	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(policyJSON))
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(policyBytes))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %v", err)
 	}
