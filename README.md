@@ -21,33 +21,29 @@ A backend service for managing Ditto IoT platform integration. This service prov
 │   └── app/              # Main application
 │       └── main.go       # Application entry point
 ├── config/               # Configuration files
-│   ├── grafana/         # Grafana dashboard configurations
 │   └── config.go        # Configuration management
 ├── external/             # External dependencies and integrations
 ├── internal/             # Private application code
 │   ├── app/             # Application core
 │   │   └── module.go    # Application module definition
-│   ├── config/          # Configuration management
 │   ├── ditto/           # Ditto client implementation
 │   │   ├── client.go    # Ditto API client implementation
 │   │   ├── service.go   # Ditto service layer
 │   │   └── module.go    # Ditto module definition
 │   ├── http/            # HTTP server and handlers
-│   │   ├── dto/         # Data Transfer Objects
 │   │   ├── handler/     # HTTP request handlers
 │   │   └── router/      # Route definitions
 │   ├── influxdb/        # InfluxDB integration
 │   │   ├── client.go    # InfluxDB client implementation
 │   │   └── module.go    # InfluxDB module definition
 │   ├── middleware/      # HTTP middleware
+│   │   ├── auth.go      # Authentication middleware
 │   │   ├── cors.go      # CORS middleware
 │   │   ├── error_handler.go # Error handling middleware
 │   │   ├── jwt_auth.go  # JWT authentication middleware
 │   │   ├── logging.go   # Request logging middleware
 │   │   └── recover.go   # Panic recovery middleware
 │   ├── model/           # Domain models
-│   │   ├── entity/      # Domain entities
-│   │   └── thing.go     # Thing model definition
 │   ├── repository/      # Repository implementations
 │   │   ├── thing_repository.go      # Thing repository interface
 │   │   ├── thing_repository_ditto.go # Ditto implementation
@@ -87,17 +83,27 @@ A backend service for managing Ditto IoT platform integration. This service prov
 
 ### Environment Variables
 
-The following environment variables need to be configured in `config/.env`:
+The following environment variables need to be configured in `.env`:
 
 ```bash
 # Server Configuration
-SERVER_PORT=8080
-SERVER_HOST=0.0.0.0
+PORT=3001
+SERVER_URL=localhost
+ENVIRONMENT=development
+GIN_MODE=debug
+PRODUCTION=false
 
 # Ditto Platform
-DITTO_API_URL=https://ditto.example.com
-DITTO_API_KEY=your-api-key
-DITTO_TENANT=your-tenant
+DITTO_URL=http://localhost:8080/api/2
+DITTO_USERNAME=ditto
+DITTO_PASSWORD=ditto
+DITTO_WS_URL=ws://localhost:8080/ws/2
+
+# Proxy Configuration
+PROXY_AUTH_USERNAME=nguyen
+PROXY_AUTH_PASSWORD=nguyen
+PROXY_TARGET_URL=http://localhost:8080
+PROXY_WS_URL=ws://localhost:8080
 
 # InfluxDB
 INFLUXDB_URL=http://influxdb:8086
@@ -105,31 +111,19 @@ INFLUXDB_TOKEN=your-token
 INFLUXDB_ORG=your-org
 INFLUXDB_BUCKET=your-bucket
 
-# Logging
-LOG_LEVEL=info
-LOG_FORMAT=json
-```
+# Database
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=postgres
+SSL_MODE=disable
 
-### Application Configuration
-
-The application configuration is defined in `config/config.yaml`:
-
-```yaml
-server:
-  port: 8080
-  host: "0.0.0.0"
-  read_timeout: 5s
-  write_timeout: 10s
-
-ditto:
-  api_url: "https://ditto.example.com"
-  timeout: 30s
-  retry_attempts: 3
-
-influxdb:
-  url: "http://influxdb:8086"
-  timeout: 5s
-  batch_size: 1000
+# JWT
+JWT_SECRET=your-secret
+JWT_EXPIRATION_TIME=24h
+JWT_REFRESH_SECRET=your-refresh-secret
+JWT_REFRESH_EXPIRATION_TIME=168h
 ```
 
 ## Setup
@@ -141,8 +135,8 @@ make install-tools
 
 2. Set up environment variables:
 ```bash
-cp config/.env.example config/.env
-# Edit config/.env with your configuration
+cp .env.example .env
+# Edit .env with your configuration
 ```
 
 3. Run the service:
@@ -156,10 +150,7 @@ make run
 
 - Build: `make build`
 - Run: `make run`
-- Test: `make test`
-- Lint: `make lint`
-- Format: `make fmt`
-- Generate mocks: `make generate-mocks`
+
 
 ### Development Workflow
 
@@ -198,11 +189,6 @@ Run specific test packages:
 go test ./internal/...
 ```
 
-Run integration tests:
-```bash
-go test ./test/integration/...
-```
-
 ## Docker Deployment
 
 ### Build and Run
@@ -217,31 +203,50 @@ To stop the service:
 docker-compose down
 ```
 
-### Docker Compose Services
-
-- `ditto-service`: Main application service
-- `influxdb`: Time-series database
-- `grafana`: Metrics visualization (optional)
-
 ## API Documentation
 
-API documentation is available at `/swagger/index.html` when the service is running.
+### API Endpoints
 
-### Example API Endpoints
+#### Health Check
+- `GET /health` - Health check endpoint (no authentication required)
 
-- `GET /api/v1/devices`: List all devices
-- `POST /api/v1/devices`: Create a new device
-- `GET /api/v1/devices/{id}`: Get device details
-- `GET /api/v1/telemetry`: Query telemetry data
-- `POST /api/v1/telemetry`: Submit telemetry data
+#### Device Management
+- `GET /api/devices` - List all devices with optional filtering
+- `PUT /api/devices/:thingId` - Create or update a device
+- `GET /api/devices/:thingId/state` - Get device state
+- `PUT /api/devices/:thingId/features/:feature/command` - Send command to device feature
+- `POST /api/devices/:thingId/features/:feature/command` - Send command to device feature
 
-## Monitoring
+#### Ditto Integration
+- `ANY /api/things/*path` - Proxy requests to Ditto API
 
-The service exposes the following monitoring endpoints:
+### Authentication
+All API endpoints (except `/health`) require Basic Authentication:
+- Username: Configured via `PROXY_AUTH_USERNAME` environment variable
+- Password: Configured via `PROXY_AUTH_PASSWORD` environment variable
 
-- `/metrics`: Prometheus metrics
-- `/health`: Health check endpoint
-- `/ready`: Readiness probe endpoint
+### Example Usage
+
+```bash
+# Health check (no auth required)
+curl http://localhost:3001/health
+
+# List devices (auth required)
+curl -u username:password http://localhost:3001/api/devices
+
+# Create/Update device
+curl -u username:password -X PUT http://localhost:3001/api/devices/device1 \
+  -H "Content-Type: application/json" \
+  -d '{"attributes": {"location": "room1"}}'
+
+# Get device state
+curl -u username:password http://localhost:3001/api/devices/device1/state
+
+# Send command to device
+curl -u username:password -X POST http://localhost:3001/api/devices/device1/features/temperature/command \
+  -H "Content-Type: application/json" \
+  -d '{"value": 25}'
+```
 
 ## Contributing
 
