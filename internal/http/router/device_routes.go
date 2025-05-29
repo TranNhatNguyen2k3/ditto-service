@@ -12,7 +12,7 @@ import (
 // SetupDeviceRoutes configures all device-related routes
 func SetupDeviceRoutes(router *gin.RouterGroup, config *config.Config) {
 	// Initialize handler
-	deviceHandler := handler.NewDeviceHandler(config.Proxy.TargetURL, config.Proxy.Username, config.Proxy.Password)
+	deviceHandler := handler.NewDeviceHandler(config)
 
 	// Device routes group
 	deviceGroup := router.Group("/devices")

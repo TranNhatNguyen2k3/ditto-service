@@ -20,9 +20,10 @@ type Config struct {
 }
 
 type DittoConfig struct {
-	URL      string `envconfig:"DITTO_URL" default:"localhost:8080"`
-	Username string `envconfig:"DITTO_USERNAME" default:"ditto"`
-	Password string `envconfig:"DITTO_PASSWORD" default:"ditto"`
+	URL      string `envconfig:"DITTO_URL"`
+	Username string `envconfig:"DITTO_USERNAME"`
+	Password string `envconfig:"DITTO_PASSWORD"`
+	WSURL    string `envconfig:"DITTO_WS_URL"`
 }
 
 type DBConfig struct {
@@ -53,17 +54,17 @@ type ServerCfg struct {
 }
 
 type InfluxDBConfig struct {
-	URL    string `envconfig:"INFLUXDB_URL" default:"http://localhost:8086"`
-	Token  string `envconfig:"INFLUXDB_TOKEN" default:"my-super-secret-token"`
-	Org    string `envconfig:"INFLUXDB_ORG" default:"myorg"`
-	Bucket string `envconfig:"INFLUXDB_BUCKET" default:"ws_events"`
+	URL    string `envconfig:"INFLUXDB_URL"`
+	Token  string `envconfig:"INFLUXDB_TOKEN"`
+	Org    string `envconfig:"INFLUXDB_ORG"`
+	Bucket string `envconfig:"INFLUXDB_BUCKET"`
 }
 
 type ProxyConfig struct {
-	TargetURL string `envconfig:"PROXY_TARGET_URL" default:"http://localhost:8080"`
-	Username  string `envconfig:"PROXY_USERNAME" default:"nguyen"`
-	Password  string `envconfig:"PROXY_PASSWORD" default:"nguyen"`
-	WSURL     string `envconfig:"PROXY_WS_URL" default:"ws://localhost:8080/ws/2"`
+	AuthUsername string `envconfig:"PROXY_AUTH_USERNAME"`
+	AuthPassword string `envconfig:"PROXY_AUTH_PASSWORD"`
+	TargetURL    string `envconfig:"PROXY_TARGET_URL"`
+	WSURL        string `envconfig:"PROXY_WS_URL"`
 }
 
 func NewConfig() (*Config, error) {

@@ -15,7 +15,7 @@ func NewGinEngine() *gin.Engine {
 }
 
 func NewProxyHandler(cfg *config.Config) *handler.ProxyHandler {
-	return handler.NewProxyHandler(cfg.Proxy.TargetURL, cfg.Proxy.Username, cfg.Proxy.Password)
+	return handler.NewProxyHandler(cfg.Proxy.TargetURL, cfg.Proxy.AuthUsername, cfg.Proxy.AuthPassword)
 }
 
 var Module = fx.Options(

@@ -9,7 +9,7 @@ import (
 
 	"ditto/config"
 	"ditto/internal/http/handler"
-	"ditto/internal/http/middleware"
+	"ditto/internal/middleware"
 )
 
 type Router struct {
@@ -27,10 +27,10 @@ func NewRouter(engine *gin.Engine, proxy *handler.ProxyHandler, config *config.C
 }
 
 func (r *Router) Setup() {
-	// Create auth config
+	// Create auth config for proxy API
 	authConfig := &middleware.AuthConfig{
-		Username: r.config.Proxy.Username,
-		Password: r.config.Proxy.Password,
+		Username: r.config.Proxy.AuthUsername,
+		Password: r.config.Proxy.AuthPassword,
 	}
 
 	// Health check endpoint (no auth required)

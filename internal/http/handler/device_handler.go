@@ -6,15 +6,16 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
+
+	"ditto/config"
 
 	"github.com/gin-gonic/gin"
 )
 
 type DeviceHandler struct {
-	dittoURL string
-	username string
-	password string
+	config *config.Config
 }
 
 type Thing struct {
@@ -39,49 +40,41 @@ type CommandRequest struct {
 	Params  map[string]interface{} `json:"params"`
 }
 
-func NewDeviceHandler(dittoURL, username, password string) *DeviceHandler {
-	// Ensure dittoURL ends with /api/2
-	if !strings.HasSuffix(dittoURL, "/api/2") {
-		dittoURL = strings.TrimRight(dittoURL, "/") + "/api/2"
-	}
-
+// NewDeviceHandler creates a new DeviceHandler
+func NewDeviceHandler(config *config.Config) *DeviceHandler {
 	return &DeviceHandler{
-		dittoURL: dittoURL,
-		username: username,
-		password: password,
+		config: config,
 	}
 }
 
-// ListThings handles getting all things for a company/namespace
+// ListThings handles GET /api/devices
 func (h *DeviceHandler) ListThings(c *gin.Context) {
-	// Get namespace from query parameter
-	namespace := c.Query("namespace")
-	if namespace == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing required parameter: namespace"})
-		return
-	}
-
 	// Get filter parameters
-	location := c.Query("location")
+	namespace := c.Query("namespace")
 	company := c.Query("company")
+	location := c.Query("location")
 
-	// Construct the target URL for Ditto API
-	targetURL := fmt.Sprintf("%s/things?namespaces=%s",
-		strings.TrimRight(h.dittoURL, "/"),
-		namespace)
+	// Build filter query
+	filter := fmt.Sprintf("namespace=\"%s\"", namespace)
+	if company != "" {
+		filter += fmt.Sprintf(" AND attributes/company=\"%s\"", company)
+	}
+	if location != "" {
+		filter += fmt.Sprintf(" AND attributes/location=\"%s\"", location)
+	}
 
-	log.Printf("Getting things from: %s", targetURL)
+	// Build Ditto API URL
+	url := fmt.Sprintf("%s/things?filter=%s", h.config.Ditto.URL, url.QueryEscape(filter))
 
-	// Create a new request
-	req, err := http.NewRequest(http.MethodGet, targetURL, nil)
+	// Create request
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Printf("Failed to create request: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create request: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
 		return
 	}
 
-	// Add Basic Auth
-	req.SetBasicAuth(h.username, h.password)
+	// Add Ditto authentication
+	req.SetBasicAuth(h.config.Ditto.Username, h.config.Ditto.Password)
 
 	// Create HTTP client and send request
 	client := &http.Client{}
@@ -176,7 +169,7 @@ func (h *DeviceHandler) CreateThing(c *gin.Context) {
 
 	// Construct the target URL for Ditto API
 	targetURL := fmt.Sprintf("%s/things/%s",
-		strings.TrimRight(h.dittoURL, "/"),
+		strings.TrimRight(h.config.Ditto.URL, "/"),
 		thingID)
 
 	log.Printf("Creating thing at: %s", targetURL)
@@ -193,8 +186,8 @@ func (h *DeviceHandler) CreateThing(c *gin.Context) {
 	// Set content type
 	req.Header.Set("Content-Type", "application/json")
 
-	// Add Basic Auth
-	req.SetBasicAuth(h.username, h.password)
+	// Add Ditto authentication
+	req.SetBasicAuth(h.config.Ditto.Username, h.config.Ditto.Password)
 
 	// Create HTTP client and send request
 	client := &http.Client{}
@@ -238,7 +231,7 @@ func (h *DeviceHandler) GetThingState(c *gin.Context) {
 
 	// Construct the target URL for Ditto API
 	targetURL := fmt.Sprintf("%s/things/%s",
-		strings.TrimRight(h.dittoURL, "/"),
+		strings.TrimRight(h.config.Ditto.URL, "/"),
 		thingID)
 
 	log.Printf("Getting thing state from: %s", targetURL)
@@ -251,8 +244,8 @@ func (h *DeviceHandler) GetThingState(c *gin.Context) {
 		return
 	}
 
-	// Add Basic Auth
-	req.SetBasicAuth(h.username, h.password)
+	// Add Ditto authentication
+	req.SetBasicAuth(h.config.Ditto.Username, h.config.Ditto.Password)
 
 	// Create HTTP client and send request
 	client := &http.Client{}
@@ -303,7 +296,7 @@ func (h *DeviceHandler) SendCommand(c *gin.Context) {
 
 	// Construct the target URL for Ditto API
 	targetURL := fmt.Sprintf("%s/things/%s/features/%s/inbox/messages/%s",
-		strings.TrimRight(h.dittoURL, "/"),
+		strings.TrimRight(h.config.Ditto.URL, "/"),
 		thingID,
 		feature,
 		cmdReq.Command)
@@ -330,8 +323,8 @@ func (h *DeviceHandler) SendCommand(c *gin.Context) {
 	// Set content type
 	req.Header.Set("Content-Type", "application/json")
 
-	// Add Basic Auth
-	req.SetBasicAuth(h.username, h.password)
+	// Add Ditto authentication
+	req.SetBasicAuth(h.config.Ditto.Username, h.config.Ditto.Password)
 
 	// Create HTTP client and send request
 	client := &http.Client{}

@@ -31,7 +31,7 @@ func main() {
 			},
 			// Initialize Ditto client
 			func(cfg *config.Config) *ditto.Client {
-				return ditto.NewClient(cfg.Proxy.WSURL, cfg.Proxy.Username, cfg.Proxy.Password)
+				return ditto.NewClient(cfg.Ditto.WSURL, cfg.Ditto.Username, cfg.Ditto.Password)
 			},
 			// Initialize Ditto service
 			ditto.NewService,
