@@ -16,6 +16,13 @@ type Config struct {
 	Server   ServerCfg
 	InfluxDB InfluxDBConfig
 	Proxy    ProxyConfig
+	Ditto    DittoConfig
+}
+
+type DittoConfig struct {
+	URL      string `envconfig:"DITTO_URL" default:"localhost:8080"`
+	Username string `envconfig:"DITTO_USERNAME" default:"ditto"`
+	Password string `envconfig:"DITTO_PASSWORD" default:"ditto"`
 }
 
 type DBConfig struct {
@@ -54,8 +61,8 @@ type InfluxDBConfig struct {
 
 type ProxyConfig struct {
 	TargetURL string `envconfig:"PROXY_TARGET_URL" default:"http://localhost:8080"`
-	Username  string `envconfig:"PROXY_USERNAME" default:"ditto"`
-	Password  string `envconfig:"PROXY_PASSWORD" default:"ditto"`
+	Username  string `envconfig:"PROXY_USERNAME" default:"nguyen"`
+	Password  string `envconfig:"PROXY_PASSWORD" default:"nguyen"`
 	WSURL     string `envconfig:"PROXY_WS_URL" default:"ws://localhost:8080/ws/2"`
 }
 
@@ -63,6 +70,10 @@ func NewConfig() (*Config, error) {
 	LoadConfig()
 
 	var cfg Config
+
+	if err := envconfig.Process("", &cfg.Ditto); err != nil {
+		log.Fatalf("Failed to process Ditto config: %v", err)
+	}
 
 	if err := envconfig.Process("", &cfg.DB); err != nil {
 		log.Fatalf("Failed to process DB config: %v", err)

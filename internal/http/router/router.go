@@ -1,75 +1,71 @@
 package router
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/fx"
 
+	"ditto/config"
 	"ditto/internal/http/handler"
+	"ditto/internal/http/middleware"
 )
 
 type Router struct {
 	engine *gin.Engine
 	proxy  *handler.ProxyHandler
+	config *config.Config
 }
 
-func NewRouter(engine *gin.Engine, proxy *handler.ProxyHandler) *Router {
+func NewRouter(engine *gin.Engine, proxy *handler.ProxyHandler, config *config.Config) *Router {
 	return &Router{
 		engine: engine,
 		proxy:  proxy,
+		config: config,
 	}
 }
 
 func (r *Router) Setup() {
-	// Health check endpoint
+	// Create auth config
+	authConfig := &middleware.AuthConfig{
+		Username: r.config.Proxy.Username,
+		Password: r.config.Proxy.Password,
+	}
+
+	// Health check endpoint (no auth required)
 	r.engine.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status": "ok",
 		})
 	})
 
-	// Setup device routes
-	r.SetupDeviceRoutes()
+	// Apply auth middleware to all routes under /api
+	r.engine.Use(func(c *gin.Context) {
+		// Skip auth for health check
+		if c.Request.URL.Path == "/health" {
+			c.Next()
+			return
+		}
 
-	// Proxy all other requests to Ditto
+		// Apply auth middleware for all other routes
+		middleware.BasicAuth(authConfig)(c)
+	})
+
+	// API routes group
 	api := r.engine.Group("/api")
 	{
+		// Setup device routes
+		SetupDeviceRoutes(api, r.config)
+
 		// Proxy /api/things/* to Ditto
 		api.Any("/things/*path", r.proxy.ProxyRequest)
 	}
-}
 
-func (r *Router) SetupDeviceRoutes() {
-	// Initialize handlers
-	statusHandler := handler.NewDeviceStatusHandler(r.proxy)
-	telemetryHandler := handler.NewTelemetryHandler(r.proxy)
-	commandHandler := handler.NewDeviceCommandHandler(r.proxy)
-
-	// Device management routes
-	devices := r.engine.Group("/api/devices")
-	{
-		// Basic CRUD operations
-		devices.GET("", r.proxy.ProxyRequest)
-		devices.GET("/:deviceId", r.proxy.ProxyRequest)
-		devices.POST("", r.proxy.ProxyRequest)
-		devices.PUT("/:deviceId", r.proxy.ProxyRequest)
-		devices.DELETE("/:deviceId", r.proxy.ProxyRequest)
-
-		// Device status routes
-		devices.GET("/:deviceId/status", statusHandler.GetDeviceStatus)
-		devices.PUT("/:deviceId/status", statusHandler.UpdateDeviceStatus)
-		devices.GET("/:deviceId/connection", statusHandler.GetDeviceConnectionStatus)
-
-		// Device telemetry routes
-		devices.GET("/:deviceId/telemetry", telemetryHandler.GetDeviceTelemetry)
-		devices.GET("/:deviceId/telemetry/history", telemetryHandler.GetDeviceTelemetryHistory)
-		devices.GET("/:deviceId/telemetry/stats", telemetryHandler.GetDeviceTelemetryStats)
-
-		// Device command routes
-		devices.POST("/:deviceId/commands", commandHandler.SendCommand)
-		devices.GET("/:deviceId/commands", commandHandler.ListCommands)
-		devices.GET("/:deviceId/commands/:commandId", commandHandler.GetCommandStatus)
+	// Print all registered routes
+	log.Printf("All registered routes:")
+	for _, route := range r.engine.Routes() {
+		log.Printf("%s %s", route.Method, route.Path)
 	}
 }
 

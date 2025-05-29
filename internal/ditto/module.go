@@ -10,9 +10,9 @@ import (
 var Module = fx.Options(
 	fx.Provide(func(cfg *config.Config) *Client {
 		return NewClient(
-			"localhost:8080", // Ditto WebSocket port
-			"ditto",          // username
-			"ditto",          // password
+			cfg.Ditto.URL,
+			cfg.Ditto.Username,
+			cfg.Ditto.Password,
 		)
 	}),
 	fx.Provide(NewService),
